@@ -1,12 +1,13 @@
 #include <sys/types.h>
+#include <sys/errno.h>
+#include <sys/stat.h>
+#include <sys/ioctl.h>
 #include <dirent.h>
 #include <termios.h>
 #include <unistd.h>
-#include <sys/errno.h>
 #include <locale.h>
 #include <langinfo.h>
 #include <time.h>
-#include <sys/stat.h>
 #include <grp.h>
 #include <pwd.h>
 
@@ -24,12 +25,18 @@ const int KEY_UP = 0x0105;
 const int KEY_DOWN = 0x0106;
 const int KEY_LEFT = 0x0107;
 const int KEY_RIGHT = 0x0108;
+const int COMMAND_MODE = 2;
+const int NORMAL_MODE = 1;
+const string TYPE_FILE = "file";
+const string TYPE_DIRECTORY = "dir";
+char ROOT_PATH[4096];
 
-char ROOT_PATH[1024];
+int mode = 1;
+char currentPath[4096];
 struct termios old_tio, new_tio;
 struct winsize WindowSize;
-stack<string> prevBackDir;
-stack<string> prevFwdDir;
+vector<string> prevBackDir;
+vector<string> prevFwdDir;
 vector<dirent *> listOfDirs;
 vector<string> typeFileOrDir;
 unsigned int xC = 1; //x co-ord for cursor
@@ -37,6 +44,8 @@ unsigned int yC = 1; //y co-ord for cursor
 unsigned int term_row;
 unsigned int term_col;
 int currList = 0;
+
+void listDirCurrentPath(char const *);
 
 int getch()
 {
@@ -90,10 +99,10 @@ int kbesc()
 			c = KEY_DOWN;
 			break;
 		case 'C':
-			c = KEY_LEFT;
+			c = KEY_RIGHT;
 			break;
 		case 'D':
-			c = KEY_RIGHT;
+			c = KEY_LEFT;
 			break;
 		default:
 			c = 0;
@@ -115,36 +124,92 @@ int kbget()
 	return (c == KEY_ESCAPE) ? kbesc() : c;
 }
 
-void moveForward(int x)
-{
-	printf("\033[%dC", x);
-}
-void moveBackward(int x)
-{
-	printf("\033[%dD", x);
-}
-
 void performOp(int x)
 {
+	string fName, p;
+	dirent *dir;
 	switch (x)
 	{
 	case 1: //key right
+		if (prevFwdDir.size() == 0)
+			break;
+		prevBackDir.push_back(string(currentPath));
+		//strcpy(currentPath, prevFwdDir.back().c_str());
+		p = prevFwdDir.back();
+		prevFwdDir.pop_back();
+		listDirCurrentPath(p.c_str());
 		break;
 	case 2: //key left
+		if (prevBackDir.size() == 0)
+			break;
+		prevFwdDir.push_back(string(currentPath));
+		//strcpy(currentPath, prevBackDir.back().c_str());
+		p = prevBackDir.back();
+		prevBackDir.pop_back();
+		listDirCurrentPath(p.c_str());
 		break;
-	case 3:
-		printf("\033[%dA", 1);
+	case 3: //key UP
+		if (yC > 1)
+		{
+			yC--;
+			printf("\033[%dA", 1);
+		}
 		break;
-	case 4:
-		printf("\033[%dB", 1);
+	case 4: //key down
+		if (yC < currList)
+		{
+			yC++;
+			printf("\033[%dB", 1);
+		}
 		break;
-	case 5:
+	case 5: //key home
+		if (strcmp(currentPath, ROOT_PATH) == 0)
+			break;
+		prevBackDir.push_back(string(currentPath));
+		//strcpy(currentPath, ROOT_PATH);
+		prevFwdDir.clear();
+		listDirCurrentPath(ROOT_PATH);
 		break;
-	case 6:
+	case 6: //key up one level (parent DIR) (backspace)
+		if (strcmp(currentPath, ROOT_PATH) == 0)
+			break;
+		prevBackDir.push_back(string(currentPath));
+		prevFwdDir.clear();
+		//strcpy(currentPath, (string(currentPath).substr(0, string(currentPath).find_last_of('/'))).c_str());
+		listDirCurrentPath("../");
 		break;
-	case 7:
+	case 7: //key ENTER
+		if (yC == currList + 1)
+			break;
+		dir = listOfDirs[yC - 1];
+		fName = string(dir->d_name);
+		if (fName == "." || fName == "..")
+		{
+			if (strcmp(currentPath, ROOT_PATH) == 0)
+				break;
+			if (fName == ".") //not sure
+				break;		  //performOp(2);
+			else
+				performOp(6);
+		}
+		else if (typeFileOrDir[yC - 1] == TYPE_DIRECTORY)
+		{
+			prevBackDir.push_back(string(currentPath));
+			//strcpy(currentPath, (string(currentPath) + "/" + fName).c_str());
+			listDirCurrentPath((string(currentPath) + "/" + fName).c_str());
+		}
+		else if (typeFileOrDir[yC - 1] == TYPE_FILE)
+		{
+			pid_t pid = fork();
+			string x = (string(currentPath) + "/" + fName);
+			if (pid == 0)
+			{
+				execl("vi", x.c_str());
+				exit(1);
+			}
+		}
 		break;
-	case 8:
+	case 8: //key command mode
 		break;
 	}
 }
@@ -155,9 +220,9 @@ void navigate()
 	while (true)
 	{
 		c = kbget();
-		if (c == KEY_ENTER || c == KEY_ESCAPE)
+		if (c == KEY_ESCAPE && mode == COMMAND_MODE)
 		{
-			break;
+			//go to normal mode;
 		}
 		else if (c == KEY_RIGHT)
 		{
@@ -184,12 +249,14 @@ void navigate()
 		{
 			performOp(6);
 		}
-		else if (c == 10) //enter - execute file or enter dir
+		else if (c == KEY_ENTER) //enter - execute file or enter dir
 		{
 			performOp(7);
 		}
 		else if (c == ':') //command mode
 		{
+			mode = COMMAND_MODE;
+			clearScreen();
 			performOp(8);
 		}
 		else if (c == 'q' || c == 'Q') //quit application
@@ -204,31 +271,33 @@ void navigate()
 	}
 }
 
-void listDirCurrentPath(char *path)
+void listDirCurrentPath(char const *pp)
 {
 	struct dirent *de;
 	struct stat fileDetails;
-	DIR *dr = opendir(path);
+	DIR *dr = opendir(pp);
 	listOfDirs.clear();
 	typeFileOrDir.clear();
 	clearScreen();
+	chdir(pp);
+	getcwd(currentPath, 4096);
 	if (dr == NULL)
 	{
 		printf("Could not open current directory");
 		return;
 	}
-	printf("Permissions\tOwner\tGroup\tSize(B)\tLast Modified\tName\n");
+	//printf("Permissions\tOwner\tGroup\tSize(B)\tLast Modified\tName\n");
 	while ((de = readdir(dr)) != NULL)
 	{
 		listOfDirs.push_back(de);
-		int detailsStatus = stat(de->d_name, &fileDetails);
+		int detailsStatus = lstat(de->d_name, &fileDetails);
 		mode_t perms = fileDetails.st_mode;
 		string permissions = "";
 		permissions = permissions + ((S_ISDIR(perms)) ? "d" : "-");
 		if (permissions == "d")
-			typeFileOrDir.push_back("dir");
+			typeFileOrDir.push_back(TYPE_DIRECTORY);
 		else
-			typeFileOrDir.push_back("file");
+			typeFileOrDir.push_back(TYPE_FILE);
 		permissions = permissions + ((perms & S_IRUSR) ? "r" : "-");
 		permissions = permissions + ((perms & S_IWUSR) ? "w" : "-");
 		permissions = permissions + ((perms & S_IXUSR) ? "x" : "-");
@@ -250,13 +319,23 @@ void listDirCurrentPath(char *path)
 		printf("%s \t %-8.8s\t%-8.8s\t%9jd\t%s\t%s\n", permissions.c_str(), pw->pw_name, gr->gr_name, (intmax_t)fileDetails.st_size, modTime, de->d_name);
 	}
 	currList = listOfDirs.size();
+	yC = 1;
 	closedir(dr);
+	cout << "\033[" << 1 << ";" << 1 << "H";
+	fflush(stdout);
 }
 
 int main()
 {
+	struct winsize size;
+	ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
+	printf("\033[8;3000;1000t");
+	fflush(stdout);
 	getcwd(ROOT_PATH, 1024);
+	//strcpy(currentPath, ROOT_PATH);
 	listDirCurrentPath(ROOT_PATH);
 	navigate();
+	printf("\033[8;%d;%d", size.ws_row, size.ws_col);
+	fflush(stdout);
 	return 0;
 }
