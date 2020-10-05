@@ -10,6 +10,7 @@
 #include <time.h>
 #include <grp.h>
 #include <pwd.h>
+#include <stdio.h>
 
 #include <iostream>
 #include <sstream>
@@ -19,6 +20,17 @@
 #include <vector>
 
 #include "commandList.h"
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#define PLATFORM_NAME "windows"
+#elif __APPLE__
+#define PLATFORM_NAME "mac"
+#elif __linux__
+#define PLATFORM_NAME "unix"
+#elif __unix__ // all unices not caught above
+#define PLATFORM_NAME "unix"
+#else
+# #define PLATFORM_NAME "other"
+#endif
 
 using namespace std;
 
@@ -210,13 +222,25 @@ void performOp(int x)
 		}
 		else if (typeFileOrDir[yC - 1] == TYPE_FILE)
 		{
-			pid_t pid = fork();
-			string x = (string(currentPath) + "/" + fName);
-			if (pid == 0)
+			clearScreen();
+			string cc;
+			if (PLATFORM_NAME == "unix")
+				cc = "/usr/bin/xdg-open";
+			else if (PLATFORM_NAME == "mac")
+				cc = "/usr/bin/open";
+			if (PLATFORM_NAME == "windows")
+				cc = "start";
+			//execl(cc.c_str(), cc.c_str(), fName.c_str(), NULL);
+			pid_t pid;
+			if ((pid = fork()) == -1)
+				printf("fork error");
+			else if (pid == 0)
 			{
-				execl("vi", x.c_str());
-				exit(1);
+				execl(cc.c_str(), cc.c_str(), fName.c_str(), NULL); //open each file in def. appl.
+				//exit(1);
+				printf("execl() error\n");
 			}
+			listDirCurrentPath(currentPath);
 		}
 		break;
 	case 8: //key command mode
@@ -465,7 +489,7 @@ int main()
 	//strcpy(currentPath, ROOT_PATH);
 	listDirCurrentPath(ROOT_PATH);
 	navigate();
-	printf("\033[8;%d;%d", size.ws_row, size.ws_col);
+	printf("\033[8;%d;%dt", size.ws_row, size.ws_col);
 	fflush(stdout);
 	return 0;
 }

@@ -3,6 +3,8 @@
 
 # Compiled Object files
 *.slo
+*.swo
+*.swp
 *.lo
 *.o
 *.obj
