@@ -12,10 +12,13 @@
 #include <pwd.h>
 
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <cstring>
 #include <stack>
 #include <vector>
+
+#include "commandList.h"
 
 using namespace std;
 
@@ -31,8 +34,10 @@ const string TYPE_FILE = "file";
 const string TYPE_DIRECTORY = "dir";
 char ROOT_PATH[4096];
 
-int mode = 1;
+int mode = NORMAL_MODE;
 char currentPath[4096];
+char inputBuffer[4096];
+int ibc = 0;
 struct termios old_tio, new_tio;
 struct winsize WindowSize;
 vector<string> prevBackDir;
@@ -46,6 +51,7 @@ unsigned int term_col;
 int currList = 0;
 
 void listDirCurrentPath(char const *);
+void navigateCommandMode(vector<string>);
 
 int getch()
 {
@@ -57,6 +63,9 @@ int getch()
 	new_tio.c_cc[VTIME] = 0;
 	tcsetattr(0, TCSANOW, &new_tio);
 	c = getchar();
+	if (c == EOF)
+		clearerr(stdin);
+	//printf("Returning %d\n",c);
 	tcsetattr(0, TCSANOW, &old_tio);
 	return c;
 }
@@ -77,7 +86,7 @@ int kbhit()
 	tcsetattr(0, TCSANOW, &new_tio);
 	c = getchar();
 	tcsetattr(0, TCSANOW, &old_tio);
-	if (c != -1)
+	if (c != -1 && c != EOF)
 		ungetc(c, stdin);
 	return ((c != -1) ? 1 : 0);
 }
@@ -121,6 +130,7 @@ int kbget()
 {
 	int c;
 	c = getch();
+	//printf("Esc is %d got back is %d",KEY_ESCAPE,c);
 	return (c == KEY_ESCAPE) ? kbesc() : c;
 }
 
@@ -210,64 +220,184 @@ void performOp(int x)
 		}
 		break;
 	case 8: //key command mode
+		clearScreen();
+
 		break;
 	}
+}
+
+vector<string> getTokens(string s)
+{
+	vector<string> x;
+	string t;
+	stringstream iss(s);
+	while (getline(iss, t, ' '))
+		x.push_back(t);
+	return x;
+}
+
+void navigateNormalMode(int c)
+{
+	if (c == KEY_ESCAPE) //go to normal mode;
+	{
+		if (mode == COMMAND_MODE)
+		{
+			mode = NORMAL_MODE;
+			ibc = 0;
+			listDirCurrentPath(currentPath);
+		}
+	}
+	else if (c == KEY_RIGHT)
+	{
+		if (mode == NORMAL_MODE)
+			performOp(1);
+		//else printf("\033[%dC", 1);
+	}
+	else if (c == KEY_LEFT)
+	{
+		if (mode == NORMAL_MODE)
+			performOp(2);
+		//else printf("\033[%dD", 1);
+	}
+	else if (c == KEY_UP)
+	{
+		if (mode == NORMAL_MODE)
+			performOp(3);
+		//else printf("\033[%dA", 1);
+	}
+	else if (c == KEY_DOWN)
+	{
+		if (mode == NORMAL_MODE)
+			performOp(4);
+		//else printf("\033[%dB", 1);
+	}
+	else if ((c == 'H' || c == 'h') && mode == NORMAL_MODE) //go to home
+	{
+		performOp(5);
+	}
+	else if (c == 127) //backspace = up one level
+	{
+		if (mode == NORMAL_MODE)
+			performOp(6);
+		else
+		{
+			printf("\b \b");
+			ibc = max(0, ibc - 1);
+		}
+	}
+	else if (c == KEY_ENTER) //enter - execute file or enter dir
+	{
+		if (mode == NORMAL_MODE)
+			performOp(7);
+		else
+		{
+			string x = "";
+			//getline(cin, x);
+			for (int i = 0; i < ibc; i++)
+				x += inputBuffer[i];
+			//cout << "\ntaking " << x << " as input\n";
+			ibc = 0;
+			navigateCommandMode(getTokens(x));
+		}
+	}
+	else if (c == ':' && mode == NORMAL_MODE) //command mode
+	{
+		mode = COMMAND_MODE;
+		ibc = 0;
+		clearScreen();
+		performOp(8);
+	}
+	else if ((c == 'q' || c == 'Q') && mode == NORMAL_MODE) //quit application
+	{
+		clearScreen();
+		exit(1);
+	}
+	else if (c == EOF) //unrecoverable error
+	{
+		//cout << "Unrecoverable error\n";
+		//exit(0);
+	}
+	else if (mode == COMMAND_MODE)
+	{
+		putchar(c);
+		inputBuffer[ibc++] = c;
+	}
+}
+
+const char *pathFormatter(string s) //if ~ is 1st char then assuming absolute path else relative path to currentPath
+{
+	string pp;
+	if (s.at(s.size() - 1) == '/')
+		s.erase(s.size() - 1);
+	if (s.at(0) == '~')
+		pp = ROOT_PATH + s.substr(1);
+	else if (s.at(0) == '.')
+		pp = string(currentPath);
+	else
+		pp = string(currentPath) + (s.at(0) == '/' ? "" : "/") + s;
+	return pp.c_str();
+}
+
+void navigateCommandMode(vector<string> s)
+{
+	if (s[0] == "copy")
+	{
+		string dest = s[s.size() - 1];
+		copyFD(s, pathFormatter(dest), currentPath);
+	}
+	else if (s[0] == "move")
+	{
+		string dest = s[s.size() - 1];
+		copyFD(s, pathFormatter(dest), currentPath);
+	}
+	else if (s[0] == "rename")
+	{
+		rename(s[1].c_str(), s[2].c_str());
+	}
+	else if (s[0] == "create_file")
+	{
+		string dest = s[s.size() - 1];
+		createFile(s[1].c_str(), pathFormatter(dest));
+	}
+	else if (s[0] == "create_dir")
+	{
+		string dest = s[s.size() - 1];
+		createDir(s[1].c_str(), pathFormatter(dest));
+	}
+	else if (s[0] == "delete_file")
+	{
+	}
+	else if (s[0] == "delete_dir")
+	{
+	}
+	else if (s[0] == "goto")
+	{
+		string dest = s[s.size() - 1];
+		chdir(pathFormatter(dest));
+		getcwd(currentPath, 4096);
+	}
+	else if (s[0] == "search")
+	{
+	}
+	else
+		cout << "Unknown command\n";
 }
 
 void navigate()
 {
 	int c;
+	string line;
 	while (true)
 	{
+		//if (mode == NORMAL_MODE){
 		c = kbget();
-		if (c == KEY_ESCAPE && mode == COMMAND_MODE)
-		{
-			//go to normal mode;
-		}
-		else if (c == KEY_RIGHT)
-		{
-			performOp(1);
-		}
-		else if (c == KEY_LEFT)
-		{
-			performOp(2);
-		}
-		else if (c == KEY_UP)
-		{
-			performOp(3);
-		}
-		else if (c == KEY_DOWN)
-		{
-			performOp(4);
-		}
-		else if (c == 'H' || c == 'h') //go to home
-
-		{
-			performOp(5);
-		}
-		else if (c == 127) //backspace = up one level
-		{
-			performOp(6);
-		}
-		else if (c == KEY_ENTER) //enter - execute file or enter dir
-		{
-			performOp(7);
-		}
-		else if (c == ':') //command mode
-		{
-			mode = COMMAND_MODE;
-			clearScreen();
-			performOp(8);
-		}
-		else if (c == 'q' || c == 'Q') //quit application
-		{
-			clearScreen();
-			break;
-		}
+		navigateNormalMode(c);
+		/*}
 		else
 		{
-			putchar(c);
-		}
+			getline(cin, line);
+			navigateCommandMode(getTokens(line));
+		}*/
 	}
 }
 
@@ -290,7 +420,7 @@ void listDirCurrentPath(char const *pp)
 	while ((de = readdir(dr)) != NULL)
 	{
 		listOfDirs.push_back(de);
-		int detailsStatus = lstat(de->d_name, &fileDetails);
+		int detailsStatus = stat(de->d_name, &fileDetails);
 		mode_t perms = fileDetails.st_mode;
 		string permissions = "";
 		permissions = permissions + ((S_ISDIR(perms)) ? "d" : "-");
