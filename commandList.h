@@ -110,14 +110,39 @@ void copyFD(vector<string> files, char const *absPath, char *curr)
 
 void createFile(const char *f, const char *loc)
 {
-	int x = open((string(loc) + "/" + string(f)).c_str(), O_RDWR | O_CREAT, S_IXUSR | S_IRUSR | S_IXUSR);
+	int x = open((string(loc) + "/" + string(f)).c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IXUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IWOTH | S_IXOTH);
 	if (x == -1)
 		printf("Error creating file\n");
 }
 
 void createDir(const char *f, const char *loc)
 {
-	int x = mkdir((string(loc) + "/" + string(f)).c_str(), S_IXUSR | S_IRUSR | S_IXUSR);
+	int x = mkdir((string(loc) + "/" + string(f)).c_str(), S_IRUSR | S_IXUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IWOTH | S_IXOTH);
 	if (x == -1)
 		printf("Error creating directory\n");
+}
+
+void deleteFD(const char *fName)
+{
+	int z = remove(fName);
+	if (z != 0)
+	{
+		DIR *dp = opendir(fName);
+		struct dirent *entry;
+		struct stat statbuf;
+
+		if (dp == NULL)
+		{
+			printf("Error opening the directory %s", fName);
+			return;
+		}
+		chdir(fName);
+		while ((entry = readdir(dp)) != NULL)
+		{
+			if (strcmp(".", entry->d_name) == 0 || strcmp("..", entry->d_name) == 0)
+				continue;
+			else
+				deleteFD(entry->d_name);
+		}
+	}
 }

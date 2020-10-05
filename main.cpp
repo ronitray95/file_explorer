@@ -313,7 +313,7 @@ void navigateNormalMode(int c)
 	{
 		if (mode == NORMAL_MODE)
 			performOp(7);
-		else
+		else if (ibc > 0)
 		{
 			string x = "";
 			//getline(cin, x);
@@ -321,6 +321,7 @@ void navigateNormalMode(int c)
 				x += inputBuffer[i];
 			//cout << "\ntaking " << x << " as input\n";
 			ibc = 0;
+			printf("\n");
 			navigateCommandMode(getTokens(x));
 		}
 	}
@@ -367,32 +368,58 @@ void navigateCommandMode(vector<string> s)
 	if (s[0] == "copy")
 	{
 		string dest = s[s.size() - 1];
-		copyFD(s, pathFormatter(dest), currentPath);
+		if (s.size() < 3)
+			printf("\nNot enough arguments\n");
+		else
+			copyFD(s, pathFormatter(dest), currentPath);
 	}
 	else if (s[0] == "move")
 	{
 		string dest = s[s.size() - 1];
-		copyFD(s, pathFormatter(dest), currentPath);
+		if (s.size() < 3)
+			printf("\nNot enough arguments\n");
+		else
+			copyFD(s, pathFormatter(dest), currentPath);
 	}
 	else if (s[0] == "rename")
 	{
-		rename(s[1].c_str(), s[2].c_str());
+		if (s.size() < 3)
+			printf("\nNot enough arguments\n");
+		else
+			rename(s[1].c_str(), s[2].c_str());
 	}
 	else if (s[0] == "create_file")
 	{
 		string dest = s[s.size() - 1];
-		createFile(s[1].c_str(), pathFormatter(dest));
+		if (s.size() < 3)
+			printf("\nNot enough arguments\n");
+		else
+		{
+			//printf("%s %s", s[1].c_str(), pathFormatter(dest));
+			createFile(s[1].c_str(), pathFormatter(dest));
+		}
 	}
 	else if (s[0] == "create_dir")
 	{
 		string dest = s[s.size() - 1];
-		createDir(s[1].c_str(), pathFormatter(dest));
+		if (s.size() < 3)
+			printf("\nNot enough arguments\n");
+		else
+			createDir(s[1].c_str(), pathFormatter(dest));
 	}
 	else if (s[0] == "delete_file")
 	{
+		if (s.size() < 2)
+			printf("\nNot enough arguments\n");
+		else
+			deleteFD(s[1].c_str());
 	}
 	else if (s[0] == "delete_dir")
 	{
+		if (s.size() < 2)
+			printf("\nNot enough arguments\n");
+		else
+			deleteFD(s[1].c_str());
 	}
 	else if (s[0] == "goto")
 	{
