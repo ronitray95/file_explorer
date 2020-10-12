@@ -130,7 +130,6 @@ void deleteFD(const char *fName)
 		DIR *dp = opendir(fName);
 		struct dirent *entry;
 		struct stat statbuf;
-
 		if (dp == NULL)
 		{
 			printf("Error opening the directory %s", fName);
@@ -144,5 +143,53 @@ void deleteFD(const char *fName)
 			else
 				deleteFD(entry->d_name);
 		}
+		chdir("..");
+		closedir(dp);
+		if (remove(fName) != 0)
+			printf("Deletion of %s failed\n", fName);
 	}
+}
+
+void moveFD(vector<string> files, char const *absPath, char *curr)
+{
+	copyFD(files, absPath, curr);
+	for (int i = 1; i < files.size() - 1; i++)
+		deleteFD(files[i].c_str());
+}
+
+bool searchFD(const char *fName, char const *curr)
+{
+	DIR *dp = opendir(curr);
+	struct dirent *entry;
+	struct stat statbuf;
+	if (dp == NULL)
+	{
+		printf("Error opening the current directory\n");
+		return false;
+	}
+	chdir(fName);
+	vector<dirent *> dirList;
+	while ((entry = readdir(dp)) != NULL)
+	{
+		stat(entry->d_name, &statbuf);
+		mode_t fP = statbuf.st_mode;
+		if (strcmp(".", entry->d_name) == 0 || strcmp("..", entry->d_name) == 0)
+			continue;
+		else if (strcmp(entry->d_name, fName))
+		{
+			return true;
+		}
+		else if (S_ISDIR(fP))
+			dirList.push_back(entry);
+		//return searchFD(fName, entry->d_name);
+	}
+	closedir(dp);
+	for (int i = 0; i < dirList.size(); i++)
+	{
+		bool b = searchFD(fName, entry->d_name);
+		if (b)
+			return true;
+	}
+	chdir("..");
+	return false;
 }

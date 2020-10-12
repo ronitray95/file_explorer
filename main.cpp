@@ -42,11 +42,13 @@ const int KEY_LEFT = 0x0107;
 const int KEY_RIGHT = 0x0108;
 const int COMMAND_MODE = 2;
 const int NORMAL_MODE = 1;
+const int SCROLL_CONSTANT = 5;
 const string TYPE_FILE = "file";
 const string TYPE_DIRECTORY = "dir";
 char ROOT_PATH[4096];
 
 int mode = NORMAL_MODE;
+int CURRENT_ROW;
 char currentPath[4096];
 char inputBuffer[4096];
 int ibc = 0;
@@ -64,6 +66,7 @@ int currList = 0;
 
 void listDirCurrentPath(char const *);
 void navigateCommandMode(vector<string>);
+void displayAtIndex(int);
 
 int getch()
 {
@@ -171,17 +174,37 @@ void performOp(int x)
 		listDirCurrentPath(p.c_str());
 		break;
 	case 3: //key UP
+		//printf("\033M");
+		//break;
+		CURRENT_ROW = max(CURRENT_ROW - 1, 1);
 		if (yC > 1)
 		{
 			yC--;
-			printf("\033[%dA", 1);
+			if (CURRENT_ROW != 1)
+				printf("\033[%dA", 1); //move cursor up
+			else
+			{
+				printf("\033M");  //scroll up
+				printf("\33[2K"); //clear line
+				displayAtIndex(yC - 1);
+				cout << "\033[" << 1 << ";" << 1 << "H";
+			}
 		}
 		break;
 	case 4: //key down
-		if (yC < currList)
+		CURRENT_ROW = min(CURRENT_ROW + 1, (int)WindowSize.ws_row);
+		if (yC < min(currList, (int)WindowSize.ws_row))
 		{
 			yC++;
 			printf("\033[%dB", 1);
+		}
+		else if (yC < currList)
+		{
+			printf("\n");
+			printf("\033[%dB", 1);
+			yC++;
+			displayAtIndex(yC - 1);
+			cout << "\033[" << yC << ";" << 1 << "H";
 		}
 		break;
 	case 5: //key home
@@ -225,9 +248,9 @@ void performOp(int x)
 			clearScreen();
 			string cc;
 			if (PLATFORM_NAME == "unix")
-				cc = "/usr/bin/xdg-open";
+				cc = "/usr/bin/vi"; //xdg-open for opening with associated program
 			else if (PLATFORM_NAME == "mac")
-				cc = "/usr/bin/open";
+				cc = "/usr/bin/vi"; //open for opening with associated program
 			if (PLATFORM_NAME == "windows")
 				cc = "start";
 			//execl(cc.c_str(), cc.c_str(), fName.c_str(), NULL);
@@ -240,12 +263,18 @@ void performOp(int x)
 				//exit(1);
 				printf("execl() error\n");
 			}
-			listDirCurrentPath(currentPath);
+			else
+			{
+				wait(NULL);
+				listDirCurrentPath(currentPath);
+			}
 		}
 		break;
 	case 8: //key command mode
 		clearScreen();
-
+		printf("\033[%d;%dH", WindowSize.ws_row, 1);
+		printf("copy\tmove\trename\tcreate_file\tcreate_dir\tdelete_file\tdelete_dir\tgoto\tsearch\t\tESC");
+		printf("\033[%d;%dH", 1, 1);
 		break;
 	}
 }
@@ -325,6 +354,16 @@ void navigateNormalMode(int c)
 			navigateCommandMode(getTokens(x));
 		}
 	}
+	else if ((c == 'k' || c == 'K') && mode == NORMAL_MODE)//scroll up
+	{ 
+		for (int i = 1; i <= SCROLL_CONSTANT; i++)
+			performOp(3);
+	}
+	else if ((c == 'l' || c == 'L') && mode == NORMAL_MODE)//scroll down
+	{ 
+		for (int i = 1; i <= SCROLL_CONSTANT; i++)
+			performOp(4);
+	}
 	else if (c == ':' && mode == NORMAL_MODE) //command mode
 	{
 		mode = COMMAND_MODE;
@@ -379,7 +418,7 @@ void navigateCommandMode(vector<string> s)
 		if (s.size() < 3)
 			printf("\nNot enough arguments\n");
 		else
-			copyFD(s, pathFormatter(dest), currentPath);
+			moveFD(s, pathFormatter(dest), currentPath);
 	}
 	else if (s[0] == "rename")
 	{
@@ -423,12 +462,30 @@ void navigateCommandMode(vector<string> s)
 	}
 	else if (s[0] == "goto")
 	{
-		string dest = s[s.size() - 1];
-		chdir(pathFormatter(dest));
-		getcwd(currentPath, 4096);
+		if (s.size() < 2)
+			printf("Not enough arguments\n");
+		else
+		{
+			string dest = s[s.size() - 1];
+			prevBackDir.push_back(string(currentPath));
+			prevFwdDir.clear();
+			chdir(pathFormatter(dest));
+			getcwd(currentPath, 4096);
+		}
 	}
 	else if (s[0] == "search")
 	{
+		if (s.size() < 2)
+			printf("Not enough arguments\n");
+		else
+		{
+			string dest = s[s.size() - 1];
+			bool x = searchFD(dest.c_str(), currentPath);
+			if (x)
+				printf("%s is present\n", dest.c_str());
+			else
+				printf("%s is not present\n", dest.c_str());
+		}
 	}
 	else
 		cout << "Unknown command\n";
@@ -452,10 +509,42 @@ void navigate()
 	}
 }
 
+void displayAtIndex(int i)
+{
+	dirent *de = listOfDirs[i];
+	struct stat fileDetails;
+	int detailsStatus = stat(de->d_name, &fileDetails);
+	mode_t perms = fileDetails.st_mode;
+	string permissions = "";
+	permissions = permissions + ((S_ISDIR(perms)) ? "d" : "-");
+	if (permissions == "d")
+		typeFileOrDir.push_back(TYPE_DIRECTORY);
+	else
+		typeFileOrDir.push_back(TYPE_FILE);
+	permissions = permissions + ((perms & S_IRUSR) ? "r" : "-");
+	permissions = permissions + ((perms & S_IWUSR) ? "w" : "-");
+	permissions = permissions + ((perms & S_IXUSR) ? "x" : "-");
+	permissions = permissions + ((perms & S_IRGRP) ? "r" : "-");
+	permissions = permissions + ((perms & S_IWGRP) ? "w" : "-");
+	permissions = permissions + ((perms & S_IXGRP) ? "x" : "-");
+	permissions = permissions + ((perms & S_IROTH) ? "r" : "-");
+	permissions = permissions + ((perms & S_IWOTH) ? "w" : "-");
+	permissions = permissions + ((perms & S_IXOTH) ? "x" : "-");
+
+	struct passwd *pw = getpwuid(fileDetails.st_uid);
+	struct group *gr = getgrgid(fileDetails.st_gid);
+	struct tm *tm = localtime(&fileDetails.st_mtime);
+	string owner = (pw == NULL ? "Undefined" : pw->pw_name);
+	string grp = (gr == NULL ? "Undefined" : gr->gr_name);
+	char modTime[256];
+	strftime(modTime, sizeof(modTime), nl_langinfo(D_T_FMT), tm);
+
+	printf("%s \t %-8.8s\t%-8.8s\t%9jd\t%s\t%s", permissions.c_str(), pw->pw_name, gr->gr_name, (intmax_t)fileDetails.st_size, modTime, de->d_name);
+}
+
 void listDirCurrentPath(char const *pp)
 {
-	struct dirent *de;
-	struct stat fileDetails;
+	struct dirent *dee;
 	DIR *dr = opendir(pp);
 	listOfDirs.clear();
 	typeFileOrDir.clear();
@@ -468,55 +557,39 @@ void listDirCurrentPath(char const *pp)
 		return;
 	}
 	//printf("Permissions\tOwner\tGroup\tSize(B)\tLast Modified\tName\n");
-	while ((de = readdir(dr)) != NULL)
+	while ((dee = readdir(dr)) != NULL)
 	{
-		listOfDirs.push_back(de);
-		int detailsStatus = stat(de->d_name, &fileDetails);
-		mode_t perms = fileDetails.st_mode;
-		string permissions = "";
-		permissions = permissions + ((S_ISDIR(perms)) ? "d" : "-");
-		if (permissions == "d")
-			typeFileOrDir.push_back(TYPE_DIRECTORY);
+		listOfDirs.push_back(dee);
+	}
+	int maxToDisplay = min((int)listOfDirs.size(), (int)WindowSize.ws_row);
+	for (int i = 0; i < maxToDisplay; i++)
+	{
+		displayAtIndex(i);
+		if (i != maxToDisplay - 1)
+			printf("\n");
 		else
-			typeFileOrDir.push_back(TYPE_FILE);
-		permissions = permissions + ((perms & S_IRUSR) ? "r" : "-");
-		permissions = permissions + ((perms & S_IWUSR) ? "w" : "-");
-		permissions = permissions + ((perms & S_IXUSR) ? "x" : "-");
-		permissions = permissions + ((perms & S_IRGRP) ? "r" : "-");
-		permissions = permissions + ((perms & S_IWGRP) ? "w" : "-");
-		permissions = permissions + ((perms & S_IXGRP) ? "x" : "-");
-		permissions = permissions + ((perms & S_IROTH) ? "r" : "-");
-		permissions = permissions + ((perms & S_IWOTH) ? "w" : "-");
-		permissions = permissions + ((perms & S_IXOTH) ? "x" : "-");
-
-		struct passwd *pw = getpwuid(fileDetails.st_uid);
-		struct group *gr = getgrgid(fileDetails.st_gid);
-		struct tm *tm = localtime(&fileDetails.st_mtime);
-		string owner = (pw == NULL ? "Undefined" : pw->pw_name);
-		string grp = (gr == NULL ? "Undefined" : gr->gr_name);
-		char modTime[256];
-		strftime(modTime, sizeof(modTime), nl_langinfo(D_T_FMT), tm);
-
-		printf("%s \t %-8.8s\t%-8.8s\t%9jd\t%s\t%s\n", permissions.c_str(), pw->pw_name, gr->gr_name, (intmax_t)fileDetails.st_size, modTime, de->d_name);
+			printf("\033[6n");
 	}
 	currList = listOfDirs.size();
 	yC = 1;
 	closedir(dr);
-	cout << "\033[" << 1 << ";" << 1 << "H";
+	cout << "\033[" << 1 << ";" << 1 << "H"; //move cursor to (1,1)
 	fflush(stdout);
 }
 
 int main()
 {
-	struct winsize size;
-	ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
-	printf("\033[8;3000;1000t");
+	//struct winsize size;
+	printf("\033[8;3000;1000t"); //maximise window
+	ioctl(STDOUT_FILENO, TIOCGWINSZ, &WindowSize);
+	//printf("\033[r");//enable scrolling
 	fflush(stdout);
 	getcwd(ROOT_PATH, 1024);
+	CURRENT_ROW = 1;
 	//strcpy(currentPath, ROOT_PATH);
 	listDirCurrentPath(ROOT_PATH);
 	navigate();
-	printf("\033[8;%d;%dt", size.ws_row, size.ws_col);
+	printf("\033[8;%d;%dt", WindowSize.ws_row, WindowSize.ws_col);
 	fflush(stdout);
 	return 0;
 }
