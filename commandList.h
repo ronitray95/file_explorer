@@ -90,7 +90,8 @@ void copyFD(vector<string> files, char const *absPath, char *curr)
 				{
 					if (strcmp(".", entry->d_name) == 0 || strcmp("..", entry->d_name) == 0)
 						continue;
-					mkdir((string(absPath) + '/' + string(entry->d_name)).c_str(), S_IRUSR | S_IWUSR | S_IXUSR);
+					mkdir((string(absPath) + '/' + string(entry->d_name)).c_str(), 0);
+					chmod((string(absPath) + '/' + string(entry->d_name)).c_str(), statbuf.st_mode);
 					vector<string> newd;
 					newd.push_back(string(entry->d_name));
 					copyFD(newd, (string(absPath) + '/' + string(entry->d_name)).c_str(), curr);
@@ -110,16 +111,20 @@ void copyFD(vector<string> files, char const *absPath, char *curr)
 
 void createFile(const char *f, const char *loc)
 {
-	int x = open((string(loc) + "/" + string(f)).c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IXUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IWOTH | S_IXOTH);
+	int x = open((string(loc) + "/" + string(f)).c_str(), O_RDWR | O_CREAT, 0); // S_IRUSR | S_IXUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IWOTH | S_IXOTH);
 	if (x == -1)
 		printf("Error creating file\n");
+	else
+		chmod((string(loc) + "/" + string(f)).c_str(), 0777);
 }
 
 void createDir(const char *f, const char *loc)
 {
-	int x = mkdir((string(loc) + "/" + string(f)).c_str(), S_IRUSR | S_IXUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IWOTH | S_IXOTH);
+	int x = mkdir((string(loc) + "/" + string(f)).c_str(), 0); //S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IWOTH | S_IXOTH);
 	if (x == -1)
 		printf("Error creating directory\n");
+	else
+		chmod((string(loc) + "/" + string(f)).c_str(), 0777);
 }
 
 void deleteFD(const char *fName)
