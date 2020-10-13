@@ -399,6 +399,7 @@ const char *pathFormatter(string s) //if ~ is 1st char then assuming absolute pa
 		pp = string(currentPath);
 	else
 		pp = string(currentPath) + (s.at(0) == '/' ? "" : "/") + s;
+	//cout<<"Using path "<<pp<<endl;
 	return pp.c_str();
 }
 

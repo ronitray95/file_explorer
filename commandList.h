@@ -28,8 +28,12 @@ void copyFile(char const *absPath, dirent *fCopy)
 	unsigned char block[4096];
 	int in, out;
 	int nread;
+	struct stat fileProps;
+	stat(fCopy->d_name, &fileProps);
 	in = open(fCopy->d_name, O_RDONLY);
-	out = open(absPath, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
+	string dest=string(absPath)+"/"+string(fCopy->d_name);
+	out = open(dest.c_str(), O_WRONLY | O_CREAT, fileProps.st_mode);
+	//printf("Copy file %s to %s", fCopy->d_name, absPath);
 	while (true)
 	{
 		int err = read(in, block, 4096);
@@ -44,11 +48,47 @@ void copyFile(char const *absPath, dirent *fCopy)
 		if (err == -1)
 		{
 			printf("Error writing to file.\n");
-			exit(1);
+			break;
 		}
 	}
 	close(in);
 	close(out);
+}
+
+void copyDir(char const *absPath, dirent *dir)
+{
+	struct stat dirDetails, entryDetails;
+	struct dirent *entry;
+	string copyPath = (string(absPath) + "/" + string(dir->d_name));
+	int x = mkdir(copyPath.c_str(), 0);
+	stat(dir->d_name, &dirDetails);
+	if (x == -1)
+	{
+		//printf("%s %s\n", absPath, dir->d_name);
+		printf("Error creating directory %s \n", copyPath.c_str());
+		return;
+	}
+	else
+		chmod(copyPath.c_str(), dirDetails.st_mode);
+	DIR *dp = opendir(dir->d_name);
+	if (dp == NULL)
+	{
+		printf("Error opening the directory %s\n", dir->d_name);
+		return;
+	}
+	chdir(dir->d_name);
+	while ((entry = readdir(dp)) != NULL)
+	{
+		stat(entry->d_name, &entryDetails);
+		if (strcmp(".", entry->d_name) == 0 || strcmp("..", entry->d_name) == 0)
+			continue;
+		else if (S_ISDIR(entryDetails.st_mode))
+			copyDir(copyPath.c_str(), entry);
+		else
+			copyFile(copyPath.c_str(), entry);
+	}
+	chdir("..");
+	closedir(dp);
 }
 
 void copyFD(vector<string> files, char const *absPath, char *curr)
@@ -56,56 +96,34 @@ void copyFD(vector<string> files, char const *absPath, char *curr)
 	for (int i = 1; i < files.size() - 1; i++)
 	{
 		string fName = files[i];
-		struct stat fileDetails, locDetails;
-		dirent *fCopy = readdir(opendir((string(curr) + fName).c_str()));
-		dirent *toCopy = readdir(opendir(absPath));
-		int fD = stat(fCopy->d_name, &fileDetails), lD = stat(fCopy->d_name, &locDetails);
-		mode_t fP = fileDetails.st_mode, lP = locDetails.st_mode;
-		if (!(fP & S_IRUSR))
+		DIR *dp = opendir(curr);
+		struct dirent *entry;
+		struct stat statbuf;
+		if (dp == NULL)
 		{
-			printf("Cannot read file %s\n", fName.c_str());
-			continue;
+			printf("Error opening the current directory\n");
+			return;
 		}
-		if (!(lP & S_IWUSR))
+		//cout << "For " << fName << " entries:\n";
+		while ((entry = readdir(dp)) != NULL)
 		{
-			printf("Do not have write permission for location\n");
-			break;
-		}
-		if (S_ISDIR(fP))
-		{
-			DIR *dp = opendir(fName.c_str());
-			struct dirent *entry;
-			struct stat statbuf;
-
-			if (dp == NULL)
+			stat(entry->d_name, &statbuf);
+			mode_t fP = statbuf.st_mode;
+			if (strcmp(".", entry->d_name) == 0 || strcmp("..", entry->d_name) == 0)
+				continue;
+			else if (strcmp(entry->d_name, fName.c_str()) == 0 && S_ISDIR(fP))
 			{
-				printf("Error opening the directory %s", fName.c_str());
-				return;
+				//cout << "Attempting copy dir " << entry->d_name << "\n";
+				copyDir(absPath, entry);
 			}
-			chdir(fName.c_str());
-			while ((entry = readdir(dp)) != NULL)
+			else if (strcmp(entry->d_name, fName.c_str()) == 0)
 			{
-				stat(entry->d_name, &statbuf);
-				if (S_ISDIR(statbuf.st_mode))
-				{
-					if (strcmp(".", entry->d_name) == 0 || strcmp("..", entry->d_name) == 0)
-						continue;
-					mkdir((string(absPath) + '/' + string(entry->d_name)).c_str(), 0);
-					chmod((string(absPath) + '/' + string(entry->d_name)).c_str(), statbuf.st_mode);
-					vector<string> newd;
-					newd.push_back(string(entry->d_name));
-					copyFD(newd, (string(absPath) + '/' + string(entry->d_name)).c_str(), curr);
-				}
-				else
-				{
-					copyFile(entry->d_name, entry);
-				}
+				//cout << "Attempting copy file " << entry->d_name << "\n";
+				copyFile(absPath, entry);
 			}
-			chdir("..");
-			closedir(dp);
+			//return searchFD(fName, entry->d_name);
 		}
-		else
-			copyFile(absPath, fCopy);
+		closedir(dp);
 	}
 }
 
@@ -169,7 +187,7 @@ bool searchFD(const char *fName, char const *curr)
 	struct stat statbuf;
 	if (dp == NULL)
 	{
-		printf("Error opening the current directory\n");
+		//printf("Error opening the current directory\n");
 		return false;
 	}
 	chdir(fName);
@@ -180,7 +198,7 @@ bool searchFD(const char *fName, char const *curr)
 		mode_t fP = statbuf.st_mode;
 		if (strcmp(".", entry->d_name) == 0 || strcmp("..", entry->d_name) == 0)
 			continue;
-		else if (strcmp(entry->d_name, fName))
+		else if (strcmp(entry->d_name, fName) == 0)
 		{
 			return true;
 		}
@@ -191,6 +209,7 @@ bool searchFD(const char *fName, char const *curr)
 	closedir(dp);
 	for (int i = 0; i < dirList.size(); i++)
 	{
+		entry = dirList[i];
 		bool b = searchFD(fName, entry->d_name);
 		if (b)
 			return true;
