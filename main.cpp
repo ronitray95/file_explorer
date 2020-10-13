@@ -68,7 +68,7 @@ void listDirCurrentPath(char const *);
 void navigateCommandMode(vector<string>);
 void displayAtIndex(int);
 
-int getch()
+int secondChar()
 {
 	int c = 0;
 	tcgetattr(0, &old_tio);
@@ -90,7 +90,7 @@ void clearScreen()
 	printf("\033[H\033[J");
 }
 
-int kbhit()
+int switchMode()
 {
 	int c = 0;
 	tcgetattr(0, &old_tio);
@@ -106,15 +106,15 @@ int kbhit()
 	return ((c != -1) ? 1 : 0);
 }
 
-int kbesc()
+int hitESC()
 {
 	int c;
-	if (!kbhit())
+	if (!switchMode())
 		return KEY_ESCAPE;
-	c = getch();
+	c = secondChar();
 	if (c == '[')
 	{
-		switch (getch())
+		switch (secondChar())
 		{
 		case 'A':
 			c = KEY_UP;
@@ -136,17 +136,17 @@ int kbesc()
 	else
 		c = 0;
 	if (c == 0)
-		while (kbhit())
-			getch();
+		while (switchMode())
+			secondChar();
 	return c;
 }
 
-int kbget()
+int firstChar()
 {
 	int c;
-	c = getch();
+	c = secondChar();
 	//printf("Esc is %d got back is %d",KEY_ESCAPE,c);
-	return (c == KEY_ESCAPE) ? kbesc() : c;
+	return (c == KEY_ESCAPE) ? hitESC() : c;
 }
 
 void performOp(int x)
@@ -272,9 +272,9 @@ void performOp(int x)
 		break;
 	case 8: //key command mode
 		clearScreen();
-		printf("\033[%d;%dH", WindowSize.ws_row, 1);
+		printf("\033[%d;%dH", WindowSize.ws_row, 1);//move to last line
 		printf("copy\tmove\trename\tcreate_file\tcreate_dir\tdelete_file\tdelete_dir\tgoto\tsearch\t\tESC");
-		printf("\033[%d;%dH", 1, 1);
+		printf("\033[%d;%dH", 1, 1);//reposition cursor
 		break;
 	}
 }
@@ -354,13 +354,13 @@ void navigateNormalMode(int c)
 			navigateCommandMode(getTokens(x));
 		}
 	}
-	else if ((c == 'k' || c == 'K') && mode == NORMAL_MODE)//scroll up
-	{ 
+	else if ((c == 'k' || c == 'K') && mode == NORMAL_MODE) //scroll up
+	{
 		for (int i = 1; i <= SCROLL_CONSTANT; i++)
 			performOp(3);
 	}
-	else if ((c == 'l' || c == 'L') && mode == NORMAL_MODE)//scroll down
-	{ 
+	else if ((c == 'l' || c == 'L') && mode == NORMAL_MODE) //scroll down
+	{
 		for (int i = 1; i <= SCROLL_CONSTANT; i++)
 			performOp(4);
 	}
@@ -417,14 +417,14 @@ void navigateCommandMode(vector<string> s)
 	{
 		string dest = s[s.size() - 1];
 		if (s.size() < 3)
-			printf("\nNot enough arguments\n");
+			printf("Not enough arguments\n");
 		else
 			moveFD(s, pathFormatter(dest), currentPath);
 	}
 	else if (s[0] == "rename")
 	{
 		if (s.size() < 3)
-			printf("\nNot enough arguments\n");
+			printf("Not enough arguments\n");
 		else
 			rename(s[1].c_str(), s[2].c_str());
 	}
@@ -432,7 +432,7 @@ void navigateCommandMode(vector<string> s)
 	{
 		string dest = s[s.size() - 1];
 		if (s.size() < 3)
-			printf("\nNot enough arguments\n");
+			printf("Not enough arguments\n");
 		else
 		{
 			//printf("%s %s", s[1].c_str(), pathFormatter(dest));
@@ -443,23 +443,23 @@ void navigateCommandMode(vector<string> s)
 	{
 		string dest = s[s.size() - 1];
 		if (s.size() < 3)
-			printf("\nNot enough arguments\n");
+			printf("Not enough arguments\n");
 		else
 			createDir(s[1].c_str(), pathFormatter(dest));
 	}
 	else if (s[0] == "delete_file")
 	{
 		if (s.size() < 2)
-			printf("\nNot enough arguments\n");
+			printf("Not enough arguments\n");
 		else
-			deleteFD(s[1].c_str());
+			deleteFD(pathFormatter(s[1]));
 	}
 	else if (s[0] == "delete_dir")
 	{
 		if (s.size() < 2)
-			printf("\nNot enough arguments\n");
+			printf("Not enough arguments\n");
 		else
-			deleteFD(s[1].c_str());
+			deleteFD(pathFormatter(s[1]));
 	}
 	else if (s[0] == "goto")
 	{
@@ -499,7 +499,7 @@ void navigate()
 	while (true)
 	{
 		//if (mode == NORMAL_MODE){
-		c = kbget();
+		c = firstChar();
 		navigateNormalMode(c);
 		/*}
 		else
@@ -522,15 +522,7 @@ void displayAtIndex(int i)
 		typeFileOrDir.push_back(TYPE_DIRECTORY);
 	else
 		typeFileOrDir.push_back(TYPE_FILE);
-	permissions = permissions + ((perms & S_IRUSR) ? "r" : "-");
-	permissions = permissions + ((perms & S_IWUSR) ? "w" : "-");
-	permissions = permissions + ((perms & S_IXUSR) ? "x" : "-");
-	permissions = permissions + ((perms & S_IRGRP) ? "r" : "-");
-	permissions = permissions + ((perms & S_IWGRP) ? "w" : "-");
-	permissions = permissions + ((perms & S_IXGRP) ? "x" : "-");
-	permissions = permissions + ((perms & S_IROTH) ? "r" : "-");
-	permissions = permissions + ((perms & S_IWOTH) ? "w" : "-");
-	permissions = permissions + ((perms & S_IXOTH) ? "x" : "-");
+	permissions = permissions + ((perms & S_IRUSR) ? "r" : "-") + ((perms & S_IWUSR) ? "w" : "-") + ((perms & S_IXUSR) ? "x" : "-") + ((perms & S_IRGRP) ? "r" : "-") + ((perms & S_IWGRP) ? "w" : "-") + ((perms & S_IXGRP) ? "x" : "-") + ((perms & S_IROTH) ? "r" : "-") + ((perms & S_IWOTH) ? "w" : "-") + ((perms & S_IXOTH) ? "x" : "-");
 
 	struct passwd *pw = getpwuid(fileDetails.st_uid);
 	struct group *gr = getgrgid(fileDetails.st_gid);
